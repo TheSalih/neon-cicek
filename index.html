@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kalp Güller + Fotoğraf</title>
+<style>
+  :root{
+    --bg: #0b0b0d;
+    --petal: rgba(175,255,245,0.98); /* başlangıç (senin renk) */
+    --leaf: rgba(24,210,200,0.95);
+    --accent: rgba(255,238,150,0.95);
+    --rose-red: #ff2b3b;
+    --rose-size: 18;
+    --move-duration: 1600ms;
+    --color-transition: 700ms;
+  }
+
+  html,body{ height:100%; margin:0; background: radial-gradient(circle at 50% 10%, #0f1113 0%, var(--bg) 60%); font-family:system-ui, sans-serif; display:flex; align-items:center; justify-content:center; overflow:hidden; color:#cfe; }
+
+  /* stage */
+  .stage { width:980px; max-width:96vw; height:640px; position:relative; user-select:none; box-sizing:border-box; }
+
+  /* control panel (top-right) */
+  .controls {
+    position:absolute; right:12px; top:12px;
+    background: rgba(0,0,0,0.28); padding:8px 10px; border-radius:10px; backdrop-filter: blur(6px);
+    display:flex; gap:8px; align-items:center; z-index:999;
+  }
+  .controls input[type="file"]{ display:none; }
+  .btn { background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.04); color:#dff; padding:6px 8px; border-radius:8px; cursor:pointer; font-size:13px; }
+  .btn.small{ padding:4px 6px; font-size:12px; }
+
+  .hint { position:absolute; left:12px; top:12px; color:rgba(180,220,220,0.9); font-size:13px; background:rgba(0,0,0,0.14); padding:6px 8px; border-radius:8px; pointer-events:none; z-index:60; }
+
+  /* heart glow when formed */
+  .heart-glow { position:absolute; left:50%; bottom:6%; width:60%; height:18%; transform:translateX(-50%); background: radial-gradient(ellipse at center, rgba(255,43,59,0.12), transparent 60%); filter: blur(20px); pointer-events:none; opacity:0; transition:opacity 700ms; z-index:10;}
+  .heart-formed .heart-glow { opacity:1; }
+
+  /* rose wrappers */
+  .rose { position:absolute; width: calc(var(--rose-size) * 2px); height: calc(var(--rose-size) * 2px); transform-origin:center; transition: left var(--move-duration) cubic-bezier(.22,.9,.26,1), top var(--move-duration) cubic-bezier(.22,.9,.26,1), transform var(--move-duration); pointer-events:none; z-index:8; opacity:0.98; }
+  .rose svg .petal { fill: var(--petal); stroke: rgba(140,255,250,0.75); stroke-width:0.8; }
+  .rose svg .center { fill: var(--accent); }
+  .stage.heart-formed .rose svg .petal { transition: fill var(--color-transition) ease-in-out; fill: var(--rose-red) !important; }
+  .stage.heart-formed .rose svg .center { transition: fill var(--color-transition) ease-in-out; fill: #ffd6d9; }
+
+  /* placed state */
+  .rose.placed { transform: scale(1); opacity:1; }
+
+  /* floating small hearts */
+  .floating-heart {
+    position:absolute; width:12px; height:12px; transform-origin:center; opacity:0; pointer-events:none; z-index:7;
+    background: linear-gradient(#ff6b7a,#ff2b3b);
+    clip-path: path('M6 11 C0 6 1 -1 6 2 C11 -1 12 6 6 11 Z'); /* approximate heart path via clip-path */
+    filter: drop-shadow(0 6px 14px rgba(255,40,60,0.12));
+    border-radius:3px;
+  }
+
+  /* floating animation */
+  .float-anim { animation: floatUp 3200ms linear forwards; }
+  @keyframes floatUp {
+    0%{ transform: translateY(0) scale(0.8); opacity:0; }
+    10%{ opacity:0.95; }
+    70%{ transform: translateY(-160px) scale(1); opacity:0.9; }
+    100%{ transform: translateY(-240px) scale(1.05); opacity:0; }
+  }
+
+  /* sparkle dots */
+  .spark {
+    position:absolute; width:6px; height:6px; border-radius:50%; background: radial-gradient(circle, #fff, rgba(255,255,255,0.75)); opacity:0; transform:translateY(0); pointer-events:none; z-index:6; filter: drop-shadow(0 8px 20px rgba(0,255,240,0.08));
+  }
+  .spark.show { animation: sparkPop 900ms ease-out forwards; }
+  @keyframes sparkPop {
+    0%{ transform:scale(0.3) translateY(0); opacity:0; }
+    30%{ transform:scale(1.0) translateY(-8px); opacity:0.95; }
+    100%{ transform:scale(0.8) translateY(-40px); opacity:0; }
+  }
+
+  /* center photo holder (masked circle) */
+  .photo-holder {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-48%); width:220px; height:220px; z-index:20; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition:opacity 600ms ease, transform 600ms ease;
+  }
+  .photo-holder.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+
+  /* circular mask */
+  .photo-mask {
+    width:100%; height:100%; border-radius:50%; overflow:hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 20px rgba(255,43,59,0.12);
+    border: 4px solid rgba(255,255,255,0.06);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+  }
+  .photo-mask img { width:100%; height:100%; object-fit:cover; display:block; transform: scale(0.98); transition: transform 600ms ease; }
+
+  /* fallback decorative inner before image */
+  .photo-placeholder {
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: rgba(255,200,200,0.82);
+    font-weight:600; font-size:14px; letter-spacing:0.6px;
+    backdrop-filter: blur(2px);
+  }
+
+  /* responsive */
+  @media (max-width:640px){
+    .stage { height:520px; }
+    .photo-holder { width:160px; height:160px; }
+    :root { --rose-size:14; --move-duration:1800ms; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="hint">Kalp oluşacak — fotoğrafı sağ üstten yükleyebilirsin.</div>
+
+    <!-- Controls: Upload local file or use URL -->
+    <div class="controls" id="controls">
+      <label class="btn small" id="uploadBtn">Yerel Fotoğraf Seç
+        <input type="file" id="fileInput" accept="image/*">
+      </label>
+      <input id="urlInput" placeholder="Resim URL'si (opsiyonel)" style="width:220px; border-radius:8px; padding:6px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.04); color:#dff; font-size:13px">
+      <button class="btn small" id="useUrlBtn">URL Kullan</button>
+      <button class="btn small" id="resetBtn" title="Tekrar oluştur">Yeniden</button>
+    </div>
+
+    <div class="heart-glow" id="heartGlow"></div>
+
+    <!-- photo holder in center -->
+    <div class="photo-holder" id="photoHolder" aria-hidden="true">
+      <div class="photo-mask" id="photoMask">
+        <div class="photo-placeholder" id="photoPlaceholder">Fotoğraf buraya gelecek</div>
+        <img id="centerImage" src="" alt="Kullanıcı fotoğrafı" style="display:none" />
+      </div>
+    </div>
+
+    <!-- roses created by JS -->
+  </div>
+
+<script>
+/* Bu script önceki kalp-gül kodunu genişletir:
+   - Orijinal güller oluşturulur ve kalp şekline hareket eder.
+   - 'heart-formed' sınıfı eklenince, eğer kullanıcı fotoğraf yüklemişse bu foto gösterilir.
+   - ayrıca uçuşan küçük kalpler ve spark'lar üretilir.
+*/
+
+(function(){
+  const STAGE = document.getElementById('stage');
+  const W = () => STAGE.clientWidth;
+  const H = () => STAGE.clientHeight;
+
+  // configurable
+  const ROSE_COUNT = 80;
+  const MOVE_DELAY_STEP = 22;
+  const BASE_ROSE_SIZE = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--rose-size')) || 18;
+
+  // helpers: heart function (same as önceki)
+  function heartXY(t){
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+    return {x,y};
+  }
+  function heartToStage(t){
+    const p = heartXY(t);
+    const scale = Math.min(W(), H()) / 44;
+    const cx = W() / 2;
+    const cy = H() / 2.2;
+    return { x: cx + p.x * scale, y: cy - p.y * scale };
+  }
+
+  // create rose
+  function createRose(i){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'rose';
+    wrapper.dataset.id = i;
+    wrapper.style.width = (BASE_ROSE_SIZE*2) + 'px';
+    wrapper.style.height = (BASE_ROSE_SIZE*2) + 'px';
+    // build svg
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox','-20 -20 40 40');
+    svg.setAttribute('width','100%');
+    svg.setAttribute('height','100%');
+    const petalCount = 6 + Math.floor(Math.random()*3);
+    for(let p=0;p<petalCount;p++){
+      const path = document.createElementNS(ns,'path');
+      path.setAttribute('d','M0,2 C4,2 8,1 8,-6 C8,-14 2,-10 0,-6 C-2,-10 -8,-14 -8,-6 C-8,1 -4,2 0,2Z');
+      const ang = p*(360/petalCount);
+      const tx = 0, ty = -4;
+      path.setAttribute('transform', `rotate(${ang}) translate(${tx},${ty})`);
+      path.classList.add('petal');
+      svg.appendChild(path);
+    }
+    const center = document.createElementNS(ns,'circle');
+    center.setAttribute('cx','0'); center.setAttribute('cy','0'); center.setAttribute('r','2.2');
+    center.classList.add('center');
+    svg.appendChild(center);
+
+    wrapper.appendChild(svg);
+    return wrapper;
+  }
+
+  // spawn initial roses
+  const roses = [];
+  for(let i=0;i<ROSE_COUNT;i++){
+    const r = createRose(i);
+    const l = Math.random() * (W() - BASE_ROSE_SIZE*2);
+    const t = (H()*0.5) + (Math.random()*H()*0.5);
+    r.style.left = l + 'px';
+    r.style.top  = t + 'px';
+    // small random rotation/scale
+    r.style.transform = `scale(${0.6 + Math.random()*0.5}) rotate(${(-25 + Math.random()*50)}deg)`;
+    STAGE.appendChild(r);
+    roses.push(r);
+  }
+
+  // compute targets
+  let targets = [];
+  function computeTargets(){
+    targets = [];
+    for(let i=0;i<ROSE_COUNT;i++){
+      const frac = i / ROSE_COUNT;
+      const tBase = frac * Math.PI * 2;
+      const t = tBase + (Math.random()-0.5) * (Math.PI * 0.12);
+      const pos = heartToStage(t);
+      const jitter = (Math.random() - 0.5) * 12;
+      const jitterY = (Math.random() - 0.5) * 8;
+      targets.push({ x: pos.x + jitter, y: pos.y + jitterY, rot: (-25 + Math.random()*50) });
+    }
+  }
+  computeTargets();
+
+  // shuffled order
+  const order = roses.map((r,i)=>i);
+  for(let i=order.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+
+  // move to heart
+  order.forEach((ri, idx) => {
+    const rose = roses[ri];
+    const target = targets[idx % targets.length];
+    const delay = idx * MOVE_DELAY_STEP + Math.floor(Math.random()*120);
+    setTimeout(()=> {
+      rose.style.left = (target.x - BASE_ROSE_SIZE) + 'px';
+      rose.style.top  = (target.y - BASE_ROSE_SIZE) + 'px';
+      rose.style.transform = `scale(1) rotate(${target.rot}deg)`;
+      rose.classList.add('placed');
+    }, delay);
+  });
+
+  // floating hearts + sparkles around formation time
+  function spawnFloatingDecor(){
+    const spawnCount = 14;
+    for(let i=0;i<spawnCount;i++){
+      const fh = document.createElement('div');
+      fh.className = 'floating-heart';
+      const left = 30 + Math.random()*40;
+      const top  = 40 + Math.random()*40;
+      fh.style.left = left + '%';
+      fh.style.top  = top + '%';
+      fh.style.opacity = '0';
+      fh.style.transform = 'translateY(0) scale(0.8)';
+      STAGE.appendChild(fh);
+      // staggered animate
+      setTimeout(()=> {
+        fh.classList.add('float-anim');
+      }, 400 + i*120);
+      // cleanup after animation
+      setTimeout(()=> fh.remove(), 4200 + i*120);
+    }
+
+    // sparkles
+    const spCount = 26;
+    for(let i=0;i<spCount;i++){
+      const sp = document.createElement('div');
+      sp.className = 'spark';
+      sp.style.left = (10 + Math.random()*80) + '%';
+      sp.style.top  = (18 + Math.random()*70) + '%';
+      STAGE.appendChild(sp);
+      setTimeout(()=> sp.classList.add('show'), 300 + i*40);
+      setTimeout(()=> sp.remove(), 1200 + i*40);
+    }
+  }
+
+  // after all roses moved, mark heart formed and show center photo if any
+  const longestDelay = order.length * MOVE_DELAY_STEP + 800 + parseInt(getComputedStyle(document.documentElement).getPropertyValue('--move-duration'));
+  setTimeout(()=> {
+    STAGE.classList.add('heart-formed');
+    spawnFloatingDecor();
+    // reveal photo or placeholder
+    showCenterPhotoIfAny();
+  }, longestDelay + 120);
+
+  // ---------- Photo handling ----------
+  const fileInput = document.getElementById('fileInput');
+  const urlInput  = document.getElementById('urlInput');
+  const useUrlBtn = document.getElementById('useUrlBtn');
+  const photoHolder = document.getElementById('photoHolder');
+  const photoMask = document.getElementById('photoMask');
+  const centerImage = document.getElementById('centerImage');
+  const photoPlaceholder = document.getElementById('photoPlaceholder');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let selectedDataUrl = 'center.jpg'; // holds the chosen image data (data URL or external URL)
+
+  // local file selection
+  fileInput.addEventListener('change', (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      selectedDataUrl = e.target.result;
+      // if heart already formed, immediately show
+      if(STAGE.classList.contains('heart-formed')) showCenterPhotoIfAny();
+      else {
+        // brief hint update
+        const h = document.querySelector('.hint'); if(h) h.textContent = 'Fotoğraf seçildi — kalp oluşunca gösterilecek.';
+      }
+    };
+    reader.readAsDataURL(f);
+  });
+
+  // URL usage
+  useUrlBtn.addEventListener('click', ()=>{
+    const url = urlInput.value.trim();
+    if(!url) { alert('Lütfen geçerli bir resim URL\'si gir.'); return; }
+    selectedDataUrl = url;
+    // try preloading to validate
+    const im = new Image();
+    im.onload = ()=> {
+      if(STAGE.classList.contains('heart-formed')) showCenterPhotoIfAny();
+      else {
+        const h = document.querySelector('.hint'); if(h) h.textContent = 'URL ayarlandı — kalp oluşunca gösterilecek.';
+      }
+    };
+    im.onerror = ()=> alert('URL geçerli bir görüntü değil veya erişilemiyor.');
+    im.src = url;
+  });
+
+  // Show the center photo if selected, otherwise show placeholder decorative
+  function showCenterPhotoIfAny(){
+    // reveal holder
+    photoHolder.classList.add('show');
+    if(selectedDataUrl){
+      // hide placeholder and set image
+      photoPlaceholder.style.display = 'none';
+      centerImage.style.display = 'block';
+      centerImage.src = selectedDataUrl;
+      // small scale-in effect
+      setTimeout(()=> centerImage.style.transform = 'scale(1)', 40);
+    } else {
+      // keep placeholder (it stays as decorative text)
+      photoPlaceholder.style.display = 'flex';
+      centerImage.style.display = 'none';
+    }
+  }
+
+  // Reset / re-run animation
+  resetBtn.addEventListener('click', ()=> {
+    // remove classes and reset positions randomly then re-run the formation
+    STAGE.classList.remove('heart-formed');
+    // remove existing floating hearts/sparks
+    document.querySelectorAll('.floating-heart, .spark').forEach(n=>n.remove());
+    // reset hint
+    const h = document.querySelector('.hint'); if(h) h.textContent = 'Yeniden dağılıyorum...';
+    // move roses to random spots
+    roses.forEach((r)=>{
+      r.classList.remove('placed');
+      const l = Math.random() * (W() - BASE_ROSE_SIZE*2);
+      const t = (H()*0.45) + (Math.random()*H()*0.55);
+      r.style.left = l + 'px'; r.style.top = t + 'px';
+      r.style.transform = `scale(${0.6 + Math.random()*0.5}) rotate(${(-25 + Math.random()*50)}deg)`;
+    });
+    // hide photo holder
+    photoHolder.classList.remove('show');
+    // recompute targets then animate again after tiny delay
+    computeTargets();
+    setTimeout(()=> {
+      order.forEach((ri, idx) => {
+        const rose = roses[ri];
+        const target = targets[idx % targets.length];
+        const delay = idx * MOVE_DELAY_STEP + Math.floor(Math.random()*120);
+        setTimeout(()=> {
+          rose.style.left = (target.x - BASE_ROSE_SIZE) + 'px';
+          rose.style.top  = (target.y - BASE_ROSE_SIZE) + 'px';
+          rose.style.transform = `scale(1) rotate(${target.rot}deg)`;
+          rose.classList.add('placed');
+        }, delay);
+      });
+      const longest = order.length * MOVE_DELAY_STEP + 800 + parseInt(getComputedStyle(document.documentElement).getPropertyValue('--move-duration'));
+      setTimeout(()=> {
+        STAGE.classList.add('heart-formed');
+        spawnFloatingDecor();
+        showCenterPhotoIfAny();
+      }, longest + 120);
+    }, 420);
+  });
+
+  // responsive: reposition image if window resized (keeps center)
+  window.addEventListener('resize', ()=> {
+    // center holder auto-centered via transform so nothing needed
+  });
+
+  // extra: clicking the stage toggles photo visibility if heart formed
+  STAGE.addEventListener('click', (e)=>{
+    if(!STAGE.classList.contains('heart-formed')) return;
+    // toggle photo visibility quickly
+    if(photoHolder.classList.contains('show')){
+      photoHolder.classList.remove('show');
+    } else {
+      photoHolder.classList.add('show');
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
